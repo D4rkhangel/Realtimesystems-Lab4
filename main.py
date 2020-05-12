@@ -1,63 +1,91 @@
-import math, random
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
+import numpy
+import random
+import math
+import threading
 
-n = 14
-N = 256
-p = int(N/2)
-w = 1800
-w_coef = []
-w_coef_new = []
-F = [0 for _ in range(N)]
-F1 = []
-F2 = []
+def signal(n, omega, min_value=0, max_value=1):
+    A = [min_value + (max_value - min_value) * random.random() for _ in range(n)]
+    phi = [min_value + (max_value - min_value) * random.random() for _ in range(n)]
 
-def get_signal(w, n, xmin=0, xmax=1):
-    A = [xmin + (xmax - xmin) * random.random() for _ in range(n)]
-    fi = [xmin + (xmax - xmin) * random.random() for _ in range(n)]
     def f(t):
         x = 0
         for i in range(n):
-            x += A[i] * math.sin(w/n*t*i + fi[i])
+            x += A[i]*math.sin(omega/n*t*i + phi[i])
         return x
     return f
 
+def get_w(N, p, k):
+    return math.cos(-2*math.pi*p*k/N), math.sin(-2*math.pi*p*k/N)
 
-gen = get_signal(w, n)
-S = [gen(i) for i in range(0,N)]
+def fft(x):
+    N = len(x)
+    global F_I, F_II
+    F_I = []
+    F_II = []
+    def even():
+        global F_II
+        for p in range(N):
+            F_II.append([0, 0])
+            for k in range(N // 2):
+                w = get_w(N//2, p, k)
+                F_II[-1][0] += x[2 * k + 1] * w[0]
+                F_II[-1][1] += x[2 * k + 1] * w[1]
 
-for i in range(p):
-    w_coef.append([])
-    for j in range(p):
-        w_coef[i].append(math.cos((4*math.pi/N)*i*j) + math.sin((4*math.pi/N)*i*j))
+    def odd():
+        global F_I
+        for p in range(N):
+            F_I.append([0, 0])
+            for k in range(N // 2):
+                w = get_w(N//2, p, k)
+                F_I[-1][0] += x[2 * k] * w[0]
+                F_I[-1][1] += x[2 * k] * w[1]
+    t1 = threading.Thread(target=even)
+    t2 = threading.Thread(target=odd)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
 
+    F = []
+    for p in range(N):
+        w = get_w(N, p, 1)
+        F.append(F_I[p][0]+1j*F_I[p][1] + (w[0]+1j*w[1])*(F_II[p][0]+1j*F_II[p][1]))
+    FR = [i.real for i in F]
+    Fi = [i.imag for i in F]
+    return FR, Fi
 
-for i in range(N):
-    w_coef_new.append(math.cos((2*math.pi/N)*i) + math.sin((2*math.pi/N)*i))
+n = 14
+omega = 1800
+N = 256
 
-for i in range(p):
-    temp1 = 0
-    temp2 = 0
-    for j in range(p):
-        temp1 += S[2*j+1] * w_coef[i][j]
-        temp2 += S[2*j] * w_coef[i][j]
-    F1.append(temp1)
-    F2.append(temp2)
+range_min = 0
+range_max = 1
 
-for i in range(N):
-    if (i < p):
-        F[i] += F2[i] + w_coef_new[i] * F1[i]
-    else:
-        F[i] += F2[i - p] - w_coef_new[i] * F1[i - p]
+x_gen = signal(n, omega, range_min, range_max)
+x = [x_gen(i) for i in range(N)]
+(FR, Fi) = fft(x)
 
+F = [FR[i] + Fi[i] for i in range(N)]
 
 fig = plt.figure()
-ax_1 = fig.add_subplot(211)
-ax_2 = fig.add_subplot(212)
 
-ax_1.plot(range(N), S)
-ax_2.plot(range(N), F)
+ax_1 = fig.add_subplot(3, 2, 1)
+ax_2 = fig.add_subplot(3, 2, 2)
+ax_3 = fig.add_subplot(3, 2, 3)
+ax_4 = fig.add_subplot(3, 2, 4)
+ax_5 = fig.add_subplot(3, 2, 5)
 
-ax_1.set(title='S')
-ax_2.set(title='F')
+ax_1.plot(range(N), FR)
+ax_2.plot(range(N), Fi)
+ax_3.plot(range(N), numpy.fft.fft(x))
+ax_4.plot(range(N), F)
+ax_5.plot(range(N), x)
+
+ax_1.set(title='Швидке перетворення')
+ax_2.set(title='Fi')
+ax_3.set(title='numpy.fft')
+ax_4.set(title='F')
+ax_5.set(title='x')
 
 plt.show()
